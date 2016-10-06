@@ -6,6 +6,7 @@
 #include <boost/scope_exit.hpp>
 
 #include <SDL.h>
+#include <thread>
 
 #include "util/tuple_reader.h"
 #include "util/vector_reader.h"
@@ -46,26 +47,33 @@ int main(int argc, char **argv)
         &SDL_DestroyWindow);
     if (!window)
         throwSDLError();
+
     auto surface = SDL_GetWindowSurface(window.get());
-    using namespace std::chrono;
-    auto lastRefresh = system_clock::now();
-    const milliseconds REFRESH_TIMEOUT{25};
-    for (std::string line; std::getline(std::cin, line);)
+    std::thread draw(
+        [&]
+        {
+            using namespace std::chrono;
+            auto lastRefresh = system_clock::now();
+            const milliseconds REFRESH_TIMEOUT{25};
+            for (std::string line; std::getline(std::cin, line);)
+            {
+                int x, y;
+                uint8_t r, g, b;
+                std::tie(x, y, r, g, b) = util::read_tuple<int, int, uint8_t, uint8_t, uint8_t>(line);
+                put_pixel(surface, {.x = x, .y = y}, {.r = r, .g = g, .b = b}, scale);
+                if (system_clock::now() - lastRefresh > REFRESH_TIMEOUT)
+                {
+                    SDL_UpdateWindowSurface(window.get());
+                    lastRefresh = system_clock::now();
+                }
+            }
+        });
+    draw.detach();
+
+    SDL_Event event;
+    while (SDL_WaitEvent(&event))
     {
-        SDL_Event event;
-        while (SDL_PollEvent(&event))
-        {
-            if (event.type == SDL_QUIT)
-                return 0;
-        };
-        int x, y;
-        uint8_t r, g, b;
-        std::tie(x, y, r, g, b) = util::read_tuple<int, int, uint8_t, uint8_t, uint8_t>(line);
-        put_pixel(surface, {.x = x, .y = y}, {.r = r, .g = g, .b = b}, scale);
-        if (system_clock::now() - lastRefresh > REFRESH_TIMEOUT)
-        {
-            SDL_UpdateWindowSurface(window.get());
-            lastRefresh = system_clock::now();
-        }
+        if (event.type == SDL_QUIT)
+            return 0;
     }
 }
